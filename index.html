@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+  <base href="https://cdn.jsdelivr.net/gh/bubbls/UGS-Assets@main/superhot/">
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SUPERHOT</title>
+  <link rel="icon" href="hot.jpg">
+
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: black;
+    }
+
+    canvas.emscripten {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+  </style>
+</head>
+
+<body>
+  <canvas
+    class="emscripten"
+    id="canvas"
+    oncontextmenu="event.preventDefault()">
+  </canvas>
+
+  <script>
+    window.mergedBlobUrls = {};
+    window.assetsReady = false;
+
+    async function mergeSplitFile(fileUrlBase, numParts = 2) {
+      const partUrls = Array.from({ length: numParts }, (_, i) =>
+        `${fileUrlBase}.part${i + 1}`
+      );
+
+      const responses = await Promise.all(partUrls.map(url => fetch(url)));
+      if (responses.some(r => !r.ok)) return null;
+
+      const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
+      const blob = new Blob(buffers, { type: 'application/octet-stream' });
+      return URL.createObjectURL(blob);
+    }
+
+    function setupXHRInterceptor() {
+      if (window.xhrInterceptorInstalled) return;
+
+      const open = XMLHttpRequest.prototype.open;
+      const send = XMLHttpRequest.prototype.send;
+
+      XMLHttpRequest.prototype.open = function (method, url, ...args) {
+        for (const [filename, blobUrl] of Object.entries(window.mergedBlobUrls)) {
+          if (url.includes(filename)) {
+            url = blobUrl;
+            break;
+          }
+        }
+        return open.call(this, method, url, ...args);
+      };
+
+      XMLHttpRequest.prototype.send = function (...args) {
+        if (!window.assetsReady) {
+          const i = setInterval(() => {
+            if (window.assetsReady) {
+              clearInterval(i);
+              send.apply(this, args);
+            }
+          }, 50);
+          return;
+        }
+        return send.apply(this, args);
+      };
+
+      window.xhrInterceptorInstalled = true;
+    }
+
+    async function prepareGameAssets() {
+      setupXHRInterceptor();
+
+      const blobUrl = await mergeSplitFile("webgl.jsgz", 2);
+      if (blobUrl) {
+        window.mergedBlobUrls["webgl.jsgz"] = blobUrl;
+      }
+
+      window.assetsReady = true;
+      loadGame();
+    }
+
+    function loadGame() {
+      const s1 = document.createElement("script");
+      s1.src = "UnityLoader.js";
+      s1.onload = () => {
+        const s2 = document.createElement("script");
+        s2.src = "/js/main.js";
+        document.body.appendChild(s2);
+      };
+      document.body.appendChild(s1);
+    }
+
+    prepareGameAssets();
+  </script>
+
+  <script>
+    const canvas = document.getElementById("canvas");
+
+    function resizeCanvas() {
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("orientationchange", resizeCanvas);
+    resizeCanvas();
+  </script>
+
+  <script>
+    var Module = {
+      TOTAL_MEMORY: 268435456,
+      dataUrl: "webgl.datagz",
+      codeUrl: "webgl.jsgz",
+      memUrl: "webgl.memgz"
+    };
+  </script>
+</body>
+</html>
